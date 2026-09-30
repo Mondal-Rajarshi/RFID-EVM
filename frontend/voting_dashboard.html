@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VoteTrack — Live Results</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+/* ─── Reset & Base ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:          #080e18;
+  --bg-card:     #0d1829;
+  --bg-card2:    #111f35;
+  --border:      #1e3050;
+  --gold:        #f0c040;
+  --gold-dim:    #a07c20;
+  --gold-glow:   rgba(240,192,64,0.18);
+  --cyan:        #38d9f5;
+  --green:       #3dffa0;
+  --rose:        #ff5e7e;
+  --text:        #dce8f7;
+  --text-muted:  #6a8aaa;
+  --font-head:   'Bebas Neue', sans-serif;
+  --font-body:   'DM Sans', sans-serif;
+  --font-mono:   'DM Mono', monospace;
+  --radius:      14px;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ─── Noise + grid background ──────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image:
+    linear-gradient(rgba(240,192,64,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(240,192,64,0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+body::after {
+  content: '';
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background: radial-gradient(ellipse 70% 50% at 50% 0%, rgba(240,192,64,0.07) 0%, transparent 70%);
+}
+
+/* ─── Layout ────────────────────────────────────────────────── */
+.page {
+  position: relative; z-index: 1;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 40px 24px 80px;
+}
+
+/* ─── Header ────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 48px;
+  flex-wrap: wrap;
+}
+
+.header-left {}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 22px; height: 2px;
+  background: var(--gold);
+  flex-shrink: 0;
+}
+
+h1 {
+  font-family: var(--font-head);
+  font-size: clamp(52px, 8vw, 88px);
+  line-height: 0.9;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+h1 span { color: var(--gold); }
+
+.header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+/* Live indicator */
+.live-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(61,255,160,0.08);
+  border: 1px solid rgba(61,255,160,0.25);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--green);
+  text-transform: uppercase;
+}
+.pulse-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse 1.6s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+
+/* Auto-refresh toggle */
+.refresh-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.toggle {
+  position: relative; width: 36px; height: 20px; cursor: pointer;
+}
+.toggle input { opacity: 0; width: 0; height: 0; }
+.toggle-track {
+  position: absolute; inset: 0;
+  background: var(--border);
+  border-radius: 999px;
+  transition: background 0.2s;
+}
+.toggle input:checked + .toggle-track { background: var(--gold); }
+.toggle-thumb {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+  pointer-events: none;
+}
+.toggle input:checked ~ .toggle-thumb { transform: translateX(16px); }
+
+/* ─── Stat strip ────────────────────────────────────────────── */
+.stat-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 40px;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  position: relative;
+  overflow: hidden;
+  animation: fadeUp 0.5s ease both;
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+.stat-card.gold::before  { background: var(--gold); }
+.stat-card.cyan::before  { background: var(--cyan); }
+.stat-card.green::before { background: var(--green); }
+
+.stat-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+.stat-value {
+  font-family: var(--font-head);
+  font-size: 42px;
+  line-height: 1;
+  color: var(--text);
+}
+.stat-card.gold  .stat-value { color: var(--gold); }
+.stat-card.cyan  .stat-value { color: var(--cyan); }
+.stat-card.green .stat-value { color: var(--green); }
+
+.stat-sub {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ─── Main grid ─────────────────────────────────────────────── */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+/* ─── Panel / card base ─────────────────────────────────────── */
+.panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  animation: fadeUp 0.5s ease both;
+}
+.panel-header {
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.panel-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.panel-body { padding: 24px; }
+
+/* ─── Bar chart (custom) ────────────────────────────────────── */
+.bar-list { display: flex; flex-direction: column; gap: 20px; }
+
+.bar-item {}
+.bar-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.bar-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+.bar-count {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.bar-track {
+  height: 10px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  width: 0%;
+  transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.bar-fill.c0 { background: linear-gradient(90deg, var(--gold), #ffd700); }
+.bar-fill.c1 { background: linear-gradient(90deg, var(--cyan), #60e0ff); }
+.bar-fill.c2 { background: linear-gradient(90deg, var(--green), #7affcc); }
+
+.bar-pct {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 5px;
+  text-align: right;
+}
+.bar-pct strong { color: var(--text); }
+
+/* ─── Pie chart panel ───────────────────────────────────────── */
+.chart-wrap {
+  position: relative;
+  max-width: 260px;
+  margin: 0 auto 24px;
+}
+.chart-center-label {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+.chart-center-label .big {
+  font-family: var(--font-head);
+  font-size: 36px;
+  color: var(--text);
+  line-height: 1;
+}
+.chart-center-label .small {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Legend */
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.legend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.legend-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+}
+.legend-name { flex: 1; color: var(--text); }
+.legend-pct  { font-family: var(--font-mono); font-size: 12px; color: var(--text-muted); }
+
+/* ─── Leading badge ─────────────────────────────────────────── */
+.leader-banner {
+  margin-top: 28px;
+  padding: 14px 20px;
+  border-radius: 10px;
+  background: var(--gold-glow);
+  border: 1px solid var(--gold-dim);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  opacity: 0;
+  transition: opacity 0.5s;
+}
+.leader-banner.visible { opacity: 1; }
+.leader-icon { font-size: 24px; }
+.leader-text {}
+.leader-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gold-dim);
+}
+.leader-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gold);
+  margin-top: 2px;
+}
+
+/* ─── Last updated footer ───────────────────────────────────── */
+.footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 36px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.last-updated {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+}
+.last-updated span { color: var(--cyan); }
+
+.btn-refresh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 20px;
+  border-radius: 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.btn-refresh:hover {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: var(--gold-glow);
+}
+.btn-refresh svg { transition: transform 0.4s; }
+.btn-refresh:hover svg { transform: rotate(180deg); }
+
+/* ─── Error / loading states ────────────────────────────────── */
+.overlay {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  gap: 16px;
+  transition: opacity 0.4s;
+}
+.overlay.hidden { opacity: 0; pointer-events: none; }
+
+.spinner {
+  width: 44px; height: 44px;
+  border: 3px solid var(--border);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.overlay-msg {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.error-box {
+  display: none;
+  background: rgba(255,94,126,0.08);
+  border: 1px solid rgba(255,94,126,0.3);
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 24px;
+  font-size: 13px;
+  color: var(--rose);
+  font-family: var(--font-mono);
+}
+.error-box.visible { display: block; }
+
+/* ─── Animations ────────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.stat-card:nth-child(1) { animation-delay: 0.05s; }
+.stat-card:nth-child(2) { animation-delay: 0.12s; }
+.stat-card:nth-child(3) { animation-delay: 0.19s; }
+.panel:nth-child(1) { animation-delay: 0.26s; }
+.panel:nth-child(2) { animation-delay: 0.33s; }
+
+/* ─── Responsive ────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .stat-strip { grid-template-columns: 1fr 1fr; }
+  .stat-strip .stat-card:nth-child(3) { grid-column: span 2; }
+  h1 { font-size: 52px; }
+}
+@media (max-width: 480px) {
+  .stat-strip { grid-template-columns: 1fr; }
+  .stat-strip .stat-card:nth-child(3) { grid-column: auto; }
+}
+</style>
+</head>
+
+<body>
+
+<!-- ── Loading overlay ───────────────────────────────────────── -->
+<div class="overlay" id="overlay">
+  <div class="spinner"></div>
+  <div class="overlay-msg">Fetching results…</div>
+</div>
+
+<!-- ── Page ──────────────────────────────────────────────────── -->
+<div class="page">
+
+  <!-- Header -->
+  <header>
+    <div class="header-left">
+      <div class="eyebrow">Live Dashboard</div>
+      <h1>VOTE<span>TRACK</span></h1>
+    </div>
+    <div class="header-right">
+      <div class="live-badge">
+        <span class="pulse-dot"></span>
+        Live Results
+      </div>
+      <div class="refresh-row">
+        <span>Auto-refresh</span>
+        <label class="toggle">
+          <input type="checkbox" id="autoToggle" checked />
+          <span class="toggle-track"></span>
+          <span class="toggle-thumb"></span>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <!-- Error box -->
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- Stat strip -->
+  <div class="stat-strip">
+    <div class="stat-card gold">
+      <div class="stat-label">Total Votes</div>
+      <div class="stat-value" id="statTotal">—</div>
+      <div class="stat-sub">cast so far</div>
+    </div>
+    <div class="stat-card cyan">
+      <div class="stat-label">Leading</div>
+      <div class="stat-value" id="statLeader" style="font-size:22px;line-height:1.2;">—</div>
+      <div class="stat-sub" id="statLeaderPct">—</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-label">Candidates</div>
+      <div class="stat-value" id="statCands">3</div>
+      <div class="stat-sub">running</div>
+    </div>
+  </div>
+
+  <!-- Main grid -->
+  <div class="main-grid">
+
+    <!-- Bar chart panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Vote Breakdown</span>
+      </div>
+      <div class="panel-body">
+        <div class="bar-list" id="barList">
+          <!-- Injected by JS -->
+        </div>
+
+        <div class="leader-banner" id="leaderBanner">
+          <span class="leader-icon">🏆</span>
+          <div class="leader-text">
+            <div class="leader-label">Currently Leading</div>
+            <div class="leader-name" id="leaderName">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pie chart panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">Vote Share</span>
+      </div>
+      <div class="panel-body">
+        <div class="chart-wrap">
+          <canvas id="pieChart" width="260" height="260"></canvas>
+          <div class="chart-center-label">
+            <div class="big" id="centerTotal">0</div>
+            <div class="small">votes</div>
+          </div>
+        </div>
+        <div class="legend" id="legend">
+          <!-- Injected by JS -->
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main-grid -->
+
+  <!-- Footer -->
+  <div class="footer-bar">
+    <div class="last-updated">
+      Last updated: <span id="lastUpdated">—</span>
+    </div>
+    <button class="btn-refresh" id="btnRefresh">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"/>
+      </svg>
+      Refresh Now
+    </button>
+  </div>
+
+</div><!-- /page -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  ★ CONFIGURATION — paste your deployed Apps Script URL here
+// ═══════════════════════════════════════════════════════════════
+const SCRIPT_URL = 'YOUR_APPS_SCRIPT_URL_HERE';   // ← change
+
+// Auto-refresh interval in milliseconds (15 seconds)
+const REFRESH_INTERVAL_MS = 15000;
+
+// ═══════════════════════════════════════════════════════════════
+//  Chart colours — must match CSS vars conceptually
+// ═══════════════════════════════════════════════════════════════
+const COLORS = ['#f0c040', '#38d9f5', '#3dffa0'];
+const COLORS_DIM = ['rgba(240,192,64,0.15)', 'rgba(56,217,245,0.15)', 'rgba(61,255,160,0.15)'];
+
+// ═══════════════════════════════════════════════════════════════
+//  State
+// ═══════════════════════════════════════════════════════════════
+let pieChart       = null;
+let autoInterval   = null;
+let lastResults    = null;
+
+// ═══════════════════════════════════════════════════════════════
+//  DOM refs
+// ═══════════════════════════════════════════════════════════════
+const overlay      = document.getElementById('overlay');
+const errorBox     = document.getElementById('errorBox');
+const statTotal    = document.getElementById('statTotal');
+const statLeader   = document.getElementById('statLeader');
+const statLeaderPct= document.getElementById('statLeaderPct');
+const statCands    = document.getElementById('statCands');
+const barList      = document.getElementById('barList');
+const leaderBanner = document.getElementById('leaderBanner');
+const leaderName   = document.getElementById('leaderName');
+const centerTotal  = document.getElementById('centerTotal');
+const legend       = document.getElementById('legend');
+const lastUpdated  = document.getElementById('lastUpdated');
+const btnRefresh   = document.getElementById('btnRefresh');
+const autoToggle   = document.getElementById('autoToggle');
+
+// ═══════════════════════════════════════════════════════════════
+//  Fetch results from Apps Script
+// ═══════════════════════════════════════════════════════════════
+async function fetchResults() {
+  try {
+    const res  = await fetch(`${SCRIPT_URL}?action=results`, { cache: 'no-store' });
+    const data = await res.json();
+    if (data.status !== 'ok') throw new Error(data.message || 'Unknown error');
+    return data;
+  } catch (err) {
+    throw new Error('Could not reach the server. Check your SCRIPT_URL. (' + err.message + ')');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Render dashboard with results data
+// ═══════════════════════════════════════════════════════════════
+function render(data) {
+  const { total, results, last_updated } = data;
+
+  // ── Stat cards ──────────────────────────────────────────────
+  statTotal.textContent = total;
+  statCands.textContent = results.length;
+  centerTotal.textContent = total;
+  lastUpdated.textContent = last_updated;
+
+  const leader = results[0];
+  if (leader && total > 0) {
+    statLeader.textContent    = leader.candidate;
+    statLeaderPct.textContent = leader.percent + '% of votes';
+    leaderName.textContent    = leader.candidate;
+    leaderBanner.classList.add('visible');
+  } else {
+    statLeader.textContent    = '—';
+    statLeaderPct.textContent = 'No votes yet';
+    leaderBanner.classList.remove('visible');
+  }
+
+  // ── Bar list ────────────────────────────────────────────────
+  barList.innerHTML = '';
+  results.forEach((r, i) => {
+    const pct = total > 0 ? r.percent : 0;
+    barList.innerHTML += `
+      <div class="bar-item">
+        <div class="bar-meta">
+          <span class="bar-name">${escHtml(r.candidate)}</span>
+          <span class="bar-count">${r.votes} vote${r.votes !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill c${i}" id="bar${i}" style="width:0%"></div>
+        </div>
+        <div class="bar-pct"><strong>${pct}%</strong></div>
+      </div>`;
+  });
+
+  // Animate bars after paint
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      results.forEach((r, i) => {
+        const fill = document.getElementById('bar' + i);
+        if (fill) fill.style.width = (total > 0 ? r.percent : 0) + '%';
+      });
+    });
+  });
+
+  // ── Pie chart ────────────────────────────────────────────────
+  const labels  = results.map(r => r.candidate);
+  const values  = results.map(r => r.votes);
+  const allZero = values.every(v => v === 0);
+
+  if (pieChart) {
+    pieChart.data.labels   = labels;
+    pieChart.data.datasets[0].data = allZero ? [1, 1, 1] : values;
+    pieChart.data.datasets[0].backgroundColor = allZero
+      ? ['rgba(30,48,80,0.6)', 'rgba(30,48,80,0.6)', 'rgba(30,48,80,0.6)']
+      : COLORS;
+    pieChart.update('active');
+  } else {
+    buildPieChart(labels, allZero ? [1,1,1] : values, allZero);
+  }
+
+  // ── Legend ───────────────────────────────────────────────────
+  legend.innerHTML = '';
+  results.forEach((r, i) => {
+    legend.innerHTML += `
+      <div class="legend-row">
+        <span class="legend-dot" style="background:${COLORS[i]}"></span>
+        <span class="legend-name">${escHtml(r.candidate)}</span>
+        <span class="legend-pct">${total > 0 ? r.percent : 0}%</span>
+      </div>`;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Build pie chart (called once)
+// ═══════════════════════════════════════════════════════════════
+function buildPieChart(labels, values, empty) {
+  const ctx = document.getElementById('pieChart').getContext('2d');
+  pieChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: values,
+        backgroundColor: empty
+          ? ['rgba(30,48,80,0.6)', 'rgba(30,48,80,0.6)', 'rgba(30,48,80,0.6)']
+          : COLORS,
+        borderColor: '#080e18',
+        borderWidth: 3,
+        hoverBorderWidth: 3,
+        hoverOffset: 8
+      }]
+    },
+    options: {
+      cutout: '70%',
+      responsive: true,
+      animation: { animateRotate: true, duration: 900 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.label}: ${ctx.raw} vote${ctx.raw !== 1 ? 's' : ''}`
+          },
+          backgroundColor: '#0d1829',
+          borderColor: '#1e3050',
+          borderWidth: 1,
+          titleColor: '#f0c040',
+          bodyColor: '#dce8f7',
+          padding: 12,
+          cornerRadius: 8
+        }
+      }
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Load (fetch + render + hide overlay)
+// ═══════════════════════════════════════════════════════════════
+async function load(showOverlay = false) {
+  if (showOverlay) overlay.classList.remove('hidden');
+  hideError();
+  try {
+    const data = await fetchResults();
+    lastResults = data;
+    render(data);
+    overlay.classList.add('hidden');
+  } catch (err) {
+    overlay.classList.add('hidden');
+    showError(err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Auto-refresh
+// ═══════════════════════════════════════════════════════════════
+function startAutoRefresh() {
+  stopAutoRefresh();
+  autoInterval = setInterval(() => load(false), REFRESH_INTERVAL_MS);
+}
+function stopAutoRefresh() {
+  if (autoInterval) clearInterval(autoInterval);
+  autoInterval = null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Error UI
+// ═══════════════════════════════════════════════════════════════
+function showError(msg) {
+  errorBox.textContent = '⚠ ' + msg;
+  errorBox.classList.add('visible');
+}
+function hideError() {
+  errorBox.classList.remove('visible');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Utility
+// ═══════════════════════════════════════════════════════════════
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  Event listeners
+// ═══════════════════════════════════════════════════════════════
+btnRefresh.addEventListener('click', () => load(false));
+
+autoToggle.addEventListener('change', () => {
+  if (autoToggle.checked) startAutoRefresh();
+  else stopAutoRefresh();
+});
+
+// ═══════════════════════════════════════════════════════════════
+//  Boot
+// ═══════════════════════════════════════════════════════════════
+load(true);
+startAutoRefresh();
+</script>
+</body>
+</html>
